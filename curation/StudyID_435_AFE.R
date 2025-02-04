@@ -26,7 +26,6 @@ library(data.table)
 # Read Data ====================================================================
 
 rm(list=ls())
-
 setwd("C:/Users/afe1/OneDrive - University of St Andrews/PHD/BioTIMEGithub")
 
 
@@ -58,7 +57,7 @@ metdt$METHODS
 metdt$COMMENTS
 metdt$GRAIN_SIZE_TEXT
 
-
+  
 # Sampling Event Date ==========================================================
 names(dt)
 
@@ -177,6 +176,8 @@ ndt$biomass <- as.numeric(ndt$biomass)
 
 range(ndt$abundance, na.rm=TRUE) # 0.01 10591.75
 range(ndt$biomass, na.rm=TRUE)   # 0.001 4730.655
+
+sum(is.na(ndt$abundance) & is.na(ndt$biomass)) # 0, at least one of the two reported.
 
 
 # Taxonomy: ====================================================================
@@ -324,13 +325,13 @@ points
 
 
 c11 <- ndt %>% group_by(GridConcat2) %>% summarise(nLat=n_distinct(LatitudeStart), nLong=n_distinct(LongitudeStart)) 
-c12 <- ndt %>% group_by(Tow, Year) %>% summarise(nDay=n_distinct(Day))      # always 1
-c12B <- ndt %>% group_by(Event, Year) %>% summarise(nDay=n_distinct(Day))   # always 1
+c12 <- ndt %>% group_by(Tow, Year) %>% summarise(nDay=n_distinct(Day))            # always 1
+c12B <- ndt %>% group_by(Event, Year) %>% summarise(nDay=n_distinct(Day))         # always 1
 c12C <- ndt %>% group_by(Event, Year) %>% summarise(nCru=n_distinct(CruiseTow))   # always 1
 c13 <- ndt %>% group_by(GridConcat2, Year, Month, Day) %>% summarise(nTow=n_distinct(Tow), nEv= n_distinct(Event))   # a few times 2 or 3
 
-c14 <- ndt %>% group_by(GridConcat2) %>% summarise(nCN=n_distinct(CruiseName)) # different cruises sampling the series
-c14B <- ndt %>% group_by(CruiseTow) %>% summarise(nY=n_distinct(Year))         # always 1
+c14 <- ndt %>% group_by(GridConcat2) %>% summarise(nCN=n_distinct(CruiseName))    # different cruises sampling the series
+c14B <- ndt %>% group_by(CruiseTow) %>% summarise(nY=n_distinct(Year))            # always 1
 c14C <- ndt %>% group_by(GridConcat2, Day, Month, Year) %>% summarise(nCTow = n_distinct(CruiseTow))   
 c14D <- ndt %>% group_by(GridConcat2, Day, Month, Year) %>% distinct(CruiseTow)   
 
@@ -345,36 +346,75 @@ length(unique(ndt$Tow))
 length(unique(ndt$CruiseTow))
 
 
+
 # RawData ======================================================================
 c15 <- ndt %>% group_by(CruiseTow) %>% summarise(nDepth=n_distinct(DepthMaximum))
 c16 <- ndt %>% group_by(CruiseTow) %>% summarise(nLat=n_distinct(LatitudeStart))
 c17 <- ndt %>% group_by(CruiseTow) %>% summarise(nLong=n_distinct(LongitudeStart))
-rawData <- ndt %>% group_by(Family, Genus, Species, GridConcat2, CruiseTow, LatitudeStart, LongitudeStart, DepthMaximum, Day, Month, Year) %>%
-  summarise(Abundance=sum(abundance), Biomass=sum(biomass))
-sum(is.na(rawData$Abundance)) # 14
-range(rawData$Abundance, na.rm=T)
-sum(is.na(rawData$Biomass))   # 30
-range(rawData$Biomass, na.rm=T)
+
+
+
+rawData <- ndt %>% group_by(Family, Genus, Species, CruiseTow, GridConcat2, LatitudeStart, LongitudeStart, DepthMaximum, Day, Month, Year) %>%
+  summarise(Abundance=sum(abundance), Biomass=sum(biomass)) # data for each tow, taxon & event date are pooled
+
+rawData2 <- rawData %>% group_by(Family, Genus, Species, GridConcat2, Day, Month, Year) %>%
+  summarise(Abundance=mean(Abundance, na.rm=T), Biomass=mean(Biomass, na.rm=T),
+            DepthElevation=mean(DepthMaximum, na.rm=T), 
+            Latitude=mean(LatitudeStart),
+            Longitude=mean(LongitudeStart))                 # av. densities for a few events when more than one tow was collected (few cases!)
+
+
+# A few checks:-----------------------------------------------------------------
+test1 <- ndt[ndt$GridConcat2=="167_-33_0-120" & ndt$Day==21 & ndt$Month==1 & ndt$Year==2009 & ndt$TaxaII=="Clio spp",]
+mean(test1$abundance)
+test2 <- rawData2[(rawData2$GridConcat2=="167_-33_0-120" & rawData2$Day==21 & rawData2$Month==1 & rawData2$Year==2009 & rawData2$Genus=="Clio"),]
+test2$Abundance
+
+test3 <- ndt[ndt$GridConcat2=="400_100_0-120" & ndt$Day==12 & ndt$Month==1 & ndt$Year==2015 & ndt$TaxaII=="Vibilia spp",]
+mean(test3$abundance)
+mean(test3$biomass)
+mean(test3$DepthMaximum)
+test4 <- rawData2[(rawData2$GridConcat2=="400_100_0-120" & rawData2$Day==12 & rawData2$Month==1 & rawData2$Year==2015 & rawData2$Genus=="Vibilia"),]
+test4$Abundance
+test4$Biomass
+test4$DepthElevation
+
+
+test5 <- ndt[ndt$GridConcat2=="-100_140_0-120" & ndt$Day==26 & ndt$Month==1 & ndt$Year==2013 &  ndt$TaxaII=="Gastropoda",]
+test5$abundance
+test6 <- rawData2[(rawData2$GridConcat2=="-100_140_0-120" & rawData2$Day==26 & rawData2$Month==1 & rawData2$Year==2013 & rawData2$Family=="Gastropoda"),]
+test6$Abundance
+
+sum(is.na(rawData$Abundance))  # 14
+sum(is.na(rawData2$Abundance)) # 13
+range(rawData2$Abundance, na.rm=T)
+
+sum(is.na(rawData$Biomass))    # 30
+sum(is.na(rawData2$Biomass))   # 28
+range(rawData2$Biomass, na.rm=T)
+
+
+# Complete rawData =============================================================
+rawData <- rawData2
 
 rawData <- rawData %>% relocate(c(Abundance, Biomass), .before=Family)
-rawData$SampleDescription <- paste0(rawData$GridConcat2, "_", rawData$CruiseTow, "_",
+rawData$SampleDescription <- paste0(rawData$GridConcat2, "_",
                                     rawData$Day, "_", rawData$Month, "_",
                                     rawData$Year)
 rawData$Plot <- rep(NA, nrow(rawData))
 rawData <- rawData %>% relocate(c(SampleDescription, Plot), .after=Species)
 
-
-names(rawData) <- plyr::revalue(names(rawData), c("LatitudeStart"="Latitude",
-                                                  "LongitudeStart"="Longitude",
-                                                  "DepthMaximum"="DepthElevation"))
 rawData$StudyID <- rep(435, nrow(rawData))
 
-rawData <- within(rawData, rm(GridConcat2, CruiseTow))
+rawData <- within(rawData, rm(GridConcat2))
 
 rawData <- as.data.frame(rawData)
 range(rawData$Latitude)
 range(rawData$Longitude)
 range(rawData$DepthElevation, na.rm=T)
+sum(is.nan(rawData$DepthElevation))    # 130
+sum(is.na(rawData$DepthElevation))     # 130
+rawData$DepthElevation[is.nan(rawData$DepthElevation)] <- NA
 
 
 # Write csv ====================================================================
