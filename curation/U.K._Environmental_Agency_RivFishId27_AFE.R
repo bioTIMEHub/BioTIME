@@ -4,7 +4,7 @@
 # Date: February 2024
 ################################################################################
 
-# Data dowloaded from ==========================================================
+# Data downloaded from ==========================================================
 # https://environment.data.gov.uk/ecology/explorer/downloads/
 
 
@@ -27,6 +27,16 @@ rm(list=ls())
 setwd("C:/Users/afe1/OneDrive - University of St Andrews/PHD/BioTIMEGithub")
 
 
+
+# NOTE: ========================================================================
+# Meeting with DEFRA Fish Monitoring Specialist March 2024:
+# Use fished area (important for part width sampling) for computing densities.
+# Standardise n of runs across the series. In Catch Depletion, take minimum n of runs.
+# Should be OK to pool records monitored with different electro fishing techniques:
+# but keep other method techniques separate. 
+
+
+
 # Read data: ===================================================================
 mypath <- getwd() 
 rawdatapath <- "C:/Users/afe1/OneDrive - University of St Andrews/PHD/BIOTIME/BioTIMENewStudiesCuration/U.K._Environmental_Agency_RivFishId27_AFE"
@@ -36,8 +46,8 @@ names(dt)
 site <- read.csv(paste0(rawdatapath, "/FW_Fish_Sites.csv"), h=T)                
 
 
-# Explore & retrieve subset meeting BT criteria ================================
 
+# Explore & retrieve subset meeting BT criteria ================================
 unique(dt$DATA_OWNER)        # "Environment Agency"
 unique(dt$IS_THIRD_PARTY)    # "No"
 unique(dt$SURVEY_STATUS)     # "Completed"
@@ -93,6 +103,7 @@ dt <- dt[!(is.na(dt$SPECIES_ID) & dt$SPECIES_NAME==""),]   # rm records with no 
 sum(dt$ZERO_CATCH=="Yes")          # 0
 
 
+
 # Methods: =====================================================================
 unique(dt$SURVEY_METHOD)
 # NOTE: DC = Direct Current, PDC = Pulsed Direct Current, AC= Alternating Current
@@ -146,6 +157,12 @@ trapping <- unique(dt$SURVEY_ID[dt$SURVEY_METHOD=="TRAPPING"])
 #View(dt[dt$SURVEY_ID %in% trapping,])                       # idem kick & fyke, there are gill net sites, keep for now
 
 
+dt$SURVEY_METHOD2 <- dt$SURVEY_METHOD
+dt$SURVEY_METHOD2 <- ifelse(dt$SURVEY_METHOD %in% c("ELECTRIC FISHING", "DC ELECTRIC FISHING", "PDC ELECTRIC FISHING",
+                                                    "AC ELECTRIC FISHING"), "ELECTRICFISHING", dt$SURVEY_METHOD2)
+sort(unique(dt$SURVEY_METHOD2))
+
+
 # Strategy: --------------------------------------------------------------------
 unique(dt$SURVEY_STRATEGY)
 sum(dt$SURVEY_STRATEGY=="NOT RECORDED")          # 171
@@ -155,7 +172,6 @@ dt <- dt[!dt$SURVEY_STRATEGY=="NOT RECORDED",]
 
 # Runs: ------------------------------------------------------------------------
 range(dt$NO_OF_RUNS)                             # 1 to 6
-
 c6 <- dt %>% group_by(SURVEY_ID) %>% summarise(nMethod=n_distinct(SURVEY_METHOD), nStrategy=n_distinct(SURVEY_STRATEGY),
                                                nRun=n_distinct(NO_OF_RUNS))     
 # c6: always 1 for the three method specifications. I.e. no multi-method surveys
@@ -164,76 +180,70 @@ c6 <- dt %>% group_by(SURVEY_ID) %>% summarise(nMethod=n_distinct(SURVEY_METHOD)
 # Check consistent methods over time -------------------------------------------
 length(unique(dt$SITE_ID)) # 9659 total n locations sampled at least 2 years
 
-# 1) more conservative: idem gear, idem strategy, idem n runs
-dt$ConcatMethods1 <- paste0(dt$SURVEY_METHOD, "_", dt$SURVEY_STRATEGY, "_", dt$NO_OF_RUNS)
-c7_1 <- dt %>% group_by(SITE_ID) %>% summarise(n=n_distinct(ConcatMethods1))
-plot(table(c7_1$n)) # most sites have 1 or 2 consistent methodologies
 
-c7_1B <- dt %>% group_by(SITE_ID, ConcatMethods1) %>% summarise(nYear=n_distinct(EVENT_DATE_YEAR))
-plot(table(c7_1B$nYear))
-length(unique(c7_1B$SITE_ID[c7_1B$nYear==1]))      # 5865
-length(unique(c7_1B$SITE_ID[c7_1B$nYear>1]))       # 8093
-
-
-# 2) idem gear, idem strategy
-dt$ConcatMethods2 <- paste0(dt$SURVEY_METHOD, "_", dt$SURVEY_STRATEGY)
-c7_2 <- dt %>% group_by(SITE_ID) %>% summarise(n=n_distinct(ConcatMethods2))
-plot(table(c7_2$n))
-c7_2B <- dt %>% group_by(SITE_ID, ConcatMethods2) %>% summarise(nYear=n_distinct(EVENT_DATE_YEAR))
-plot(table(c7_2B$nYear))
-length(unique(c7_2B$SITE_ID[c7_2B$nYear==1]))      # 5264
-length(unique(c7_2B$SITE_ID[c7_2B$nYear>1]))       # 8226
-
-
-# 3) only idem strategy
-c7_3 <- dt %>% group_by(SITE_ID) %>% summarise(n=n_distinct(SURVEY_STRATEGY))
-plot(table(c7_3$n))
-c7_3B <- dt %>% group_by(SITE_ID, SURVEY_STRATEGY) %>% summarise(nYear=n_distinct(EVENT_DATE_YEAR))
-plot(table(c7_3B$nYear))
-length(unique(c7_3B$SITE_ID[c7_3B$nYear==1]))      # 2346
-length(unique(c7_3B$SITE_ID[c7_3B$nYear>1]))       # 9042
-
-
-# 4) only idem gear
-c7_4 <- dt %>% group_by(SITE_ID) %>% summarise(n=n_distinct(SURVEY_METHOD))
-plot(table(c7_4$n))
-c7_4B <- dt %>% group_by(SITE_ID, SURVEY_METHOD) %>% summarise(nYear=n_distinct(EVENT_DATE_YEAR))
-plot(table(c7_4B$nYear))
-length(unique(c7_4B$SITE_ID[c7_4B$nYear==1]))      # 3724
-length(unique(c7_4B$SITE_ID[c7_4B$nYear>1]))       # 8676
-
-
-# NOTE: whether fish catchability is comparable between gears & strategies
-# is uncertain. Thus I keep the more conservative filtering (idem gear, idem 
-# strategy). Densities are standardised x 1 run below.
-
-
-c7 <- dt %>% group_by(SITE_ID, SURVEY_METHOD, SURVEY_STRATEGY) %>% summarise(nYear=n_distinct(EVENT_DATE_YEAR))
-c7$ConcatRm <- paste0(c7$SITE_ID, "_", c7$SURVEY_METHOD, "_", c7$SURVEY_STRATEGY)
-dt$ConcatRm <- paste0(dt$SITE_ID, "_", dt$SURVEY_METHOD, "_", dt$SURVEY_STRATEGY)
+c7 <- dt %>% group_by(SITE_ID, SURVEY_METHOD2, SURVEY_STRATEGY) %>% summarise(nYear=n_distinct(EVENT_DATE_YEAR))
+c7$ConcatRm <- paste0(c7$SITE_ID, "_", c7$SURVEY_METHOD2, "_", c7$SURVEY_STRATEGY)
+dt$ConcatRm <- paste0(dt$SITE_ID, "_", dt$SURVEY_METHOD2, "_", dt$SURVEY_STRATEGY)
 sum(c7$nYear==1)                          # 8177
 length(unique(c7$ConcatRm[c7$nYear==1]))  
 toRm <- unique(c7$ConcatRm[c7$nYear==1])
 length(unique(dt$SITE_ID))                # total 9659 sites
 dt <- dt[!dt$ConcatRm %in% toRm, ]        # rm surveys with a specific methodology used only 1 year
-length(unique(dt$SITE_ID))                # new total 8226 sites 
+length(unique(dt$SITE_ID))                # new total 8989 sites 
 
 
-# final checks methods ---------------------------------------------------------
-c8 <- dt %>% group_by(SITE_ID, SURVEY_METHOD, SURVEY_STRATEGY) %>% summarise(nYear=n_distinct(EVENT_DATE_YEAR)) # 2-28
+# additional checks methods ----------------------------------------------------
+c8 <- dt %>% group_by(SITE_ID, SURVEY_METHOD2, SURVEY_STRATEGY) %>% summarise(nYear=n_distinct(EVENT_DATE_YEAR)) # 2-29
+c8B <- dt %>% group_by(SITE_ID, SURVEY_METHOD2, SURVEY_STRATEGY) %>% summarise(nM=n_distinct(SURVEY_METHOD))     
+length(unique(c8B$SITE_ID[c8B$nM > 1]))                            # 4620
+length(unique(c8B$SITE_ID[c8B$SURVEY_METHOD2=="ELECTRICFISHING"])) # 8221
+
+
+# Standardise runs -------------------------------------------------------------
+c9 <- dt %>% group_by(SITE_ID, SURVEY_METHOD2, SURVEY_STRATEGY) %>% summarise(nR=n_distinct(NO_OF_RUNS)) # 1-4
+table(dt$NO_OF_RUNS)
+
+unique(c9$SURVEY_METHOD2[c9$nR>1])   # Electro, seine netting, wrap seine & netting
+unique(c9$SURVEY_STRATEGY[c9$nR>1])  # Catch Depletion & Catch Depletion Part-Width
+
+range(dt$NO_OF_RUNS[dt$SURVEY_STRATEGY=="CATCH DEPLETION SAMPLE"])  # 2-6
+range(dt$NO_OF_RUNS[!dt$SURVEY_STRATEGY=="CATCH DEPLETION SAMPLE"]) # 1-4
+range(dt$NO_OF_RUNS[dt$SURVEY_STRATEGY=="SINGLE CATCH SAMPLE"])     # always 1
+
+
+dt <- dt %>% group_by(SITE_ID, SURVEY_METHOD2, SURVEY_STRATEGY) %>% mutate(minS=min(NO_OF_RUNS)) %>% ungroup()
+range(dt$minS) # 1-5
+table(dt$minS)
+
+#View(dt[dt$minS==5,]) # Fyke
+#View(dt[dt$minS==4,]) # Electrofishing in 2 specific sites.
+
+
+dt$ALL_RUNS_STANDARD <- rep(NA, nrow(dt))
+dt$ALL_RUNS_STANDARD <- ifelse(dt$minS==1, dt$RUN1, dt$ALL_RUNS_STANDARD)
+dt$ALL_RUNS_STANDARD <- ifelse(dt$minS==2, dt$RUN1+dt$RUN2, dt$ALL_RUNS_STANDARD)
+dt$ALL_RUNS_STANDARD <- ifelse(dt$minS==3, dt$RUN1+dt$RUN2+dt$RUN3, dt$ALL_RUNS_STANDARD)
+dt$ALL_RUNS_STANDARD <- ifelse(dt$minS==4, dt$RUN1+dt$RUN2+dt$RUN3+dt$RUN4, dt$ALL_RUNS_STANDARD)
+dt$ALL_RUNS_STANDARD <- ifelse(dt$minS==5, dt$RUN1+dt$RUN2+dt$RUN3+dt$RUN4+dt$RUN5, dt$ALL_RUNS_STANDARD)
+# checked a few visually, looks OK.
+
+sum(dt$ALL_RUNS_STANDARD==0, na.rm=T) # 1108 (these are those lost by removing/evening n of runs)
+sum(dt$ALL_RUNS==0, na.rm=T)          # 0
+
+sum(is.na(dt$ALL_RUNS_STANDARD))      # 47428
+sum(is.na(dt$ALL_RUNS))               # 47428
+
 
 
 # Abundance ====================================================================
-range(dt$ALL_RUNS, na.rm=T)    # 1 41822
-sum(is.na(dt$ALL_RUNS))        # 42697
-#View(dt[is.na(dt$ALL_RUNS),]) # observed, not sampled (range of possible abundances)
+range(dt$ALL_RUNS_STANDARD, na.rm=T)    # 0 41822
+unique(dt$OBSERVED_ABUNDANCE[dt$ALL_RUNS_STANDARD==0])     # "" / NA
+unique(dt$OBSERVED_ABUNDANCE[is.na(dt$ALL_RUNS_STANDARD)]) # multiple categories
 
-length(unique(dt$SURVEY_ID[is.na(dt$ALL_RUNS)]))   
-length(unique(dt$SURVEY_ID[!is.na(dt$ALL_RUNS)]))  
-17240/(17240+45444)*100                            # 27.5%              
+47428/281914*100                       # 17% obs
 
-unique(dt$OBSERVED_ABUNDANCE)
-unique(dt$ALL_RUNS[dt$OBSERVED_ABUNDANCE!=""])     # NA
+unique(dt$OBSERVED_ABUNDANCE)                               # multiple
+unique(dt$ALL_RUNS_STANDARD[dt$OBSERVED_ABUNDANCE!=""])     # always NA
 
 dt$OBSERVED_ABUNDANCE[dt$OBSERVED_ABUNDANCE==""] <- NA
 dt$OBSERVED_ABUNDANCE[dt$OBSERVED_ABUNDANCE=="Present [Best Run]"] <- 1
@@ -252,17 +262,21 @@ dt$OBSERVED_ABUNDANCE[dt$OBSERVED_ABUNDANCE=="10000+ [Survey]"] <- 10000
 dt$OBSERVED_ABUNDANCE <- as.integer(dt$OBSERVED_ABUNDANCE)
 unique(dt$OBSERVED_ABUNDANCE)
 
-dt$TOTAL_ABUNDANCE <- ifelse(is.na(dt$ALL_RUNS), dt$OBSERVED_ABUNDANCE, dt$ALL_RUNS)
-range(dt$TOTAL_ABUNDANCE)       # 1 - 41822
+
+dt$TOTAL_ABUNDANCE <- ifelse(is.na(dt$ALL_RUNS_STANDARD), dt$OBSERVED_ABUNDANCE, dt$ALL_RUNS_STANDARD)
+range(dt$TOTAL_ABUNDANCE)       # 0 - 41822
+dt <- dt[dt$TOTAL_ABUNDANCE>0,] # (rested 1108)
+
 
 
 # Taxonomy: ====================================================================
-length(unique(dt$SPECIES_NAME)) # 111
-length(unique(dt$LATIN_NAME))   # 79
+length(unique(dt$SPECIES_NAME)) # 112
+length(unique(dt$LATIN_NAME))   # 80
 sum(is.na(dt$LATIN_NAME))       # 0
 
 unique(dt$SPECIES_NAME)         # common names
 unique(dt$LATIN_NAME)
+table(dt$LATIN_NAME)
 
 # ""
 # "Rutilus rutilus x Abramis brama"                   
@@ -289,8 +303,8 @@ unique(dt$LATIN_NAME)
 # NOTE: Hybrids of Salmonidae (sp1, sp2, sp3, ... spn)
 
 
-sum(dt$LATIN_NAME=="")                           # 207
-length(unique(dt$SURVEY_ID[dt$LATIN_NAME==""]))  # 207
+sum(dt$LATIN_NAME=="")                           # 213
+length(unique(dt$SURVEY_ID[dt$LATIN_NAME==""]))  # 213
 #View(dt[dt$LATIN_NAME=="",])                   
 
 dt <- dt[!dt$LATIN_NAME=="",]                    # rm, these are surveys for which fish taxa aren't IDd
@@ -347,14 +361,15 @@ unique(dt$LATIN_NAME[dt$LATIN_NAME2=="Cyprinidae sp14"])
 unique(dt$LATIN_NAME[dt$LATIN_NAME2=="Salmonidae sp2"])
 
 
+
 # Coordinates ==================================================================
 # NGR: British National Grid (BNG), EPSG:27700
 # easting = long, northing = lat
 range(dt$SURVEY_RANKED_EASTING)
 range(dt$SURVEY_RANKED_NORTHING)
 
-c9 <- dt %>% group_by(SURVEY_RANKED_EASTING, SURVEY_RANKED_NORTHING) %>% summarise(NSite=n_distinct(SITE_ID))                   # some sites have the same coordinates but it's infrequent
-c9B<- dt %>% group_by(SITE_ID) %>% summarise(NLat=n_distinct(SURVEY_RANKED_NORTHING), NLong=n_distinct(SURVEY_RANKED_EASTING))  # multiple vals
+c9 <- dt %>% group_by(SURVEY_RANKED_EASTING, SURVEY_RANKED_NORTHING) %>% summarise(NSite=n_distinct(SITE_ID))                    # some sites have the same coordinates but it's infrequent
+c9B<- dt %>% group_by(SITE_ID) %>% summarise(NLat=n_distinct(SURVEY_RANKED_NORTHING), NLong=n_distinct(SURVEY_RANKED_EASTING))   # multiple vals
 
 site9 <- site %>% group_by(SITE_RANKED_EASTING, SITE_RANKED_NORTHING) %>% summarise(NSite=n_distinct(SITE_ID))                   # some sites have the same coordinates but it's infrequent
 site9B<- site %>% group_by(SITE_ID) %>% summarise(NLat=n_distinct(SITE_RANKED_NORTHING), NLong=n_distinct(SITE_RANKED_EASTING))  # same throughout the series, only 1 pair per site
@@ -387,9 +402,17 @@ range(dt$Latitude)
 # Correction coordinates site id 15492:
 unique(dt$SURVEY_RANKED_EASTING[dt$SITE_ID %in% c(15492)])
 unique(dt$SURVEY_RANKED_NORTHING[dt$SITE_ID %in% c(15492)]) # idem in site
-unique(dt$SITE_NAME[dt$SITE_ID == 15492])
+unique(dt$SITE_NAME[dt$SITE_ID == 15492])                   # "Tipton St John (Dip)*"
 dt$Latitude[dt$SITE_ID == 15492] <- 50.72224566977441
 dt$Longitude[dt$SITE_ID == 15492] <- -3.290619262138365     # coords Tipton St John Google Maps
+
+
+# Correction coordinates site id 22009:
+unique(dt$SURVEY_RANKED_EASTING[dt$SITE_ID %in% c(22009)])
+unique(dt$SURVEY_RANKED_NORTHING[dt$SITE_ID %in% c(22009)]) # idem in site
+unique(dt$SITE_NAME[dt$SITE_ID == 22009])                   # Maidenwood
+dt$Latitude[dt$SITE_ID == 22009] <- 50.848447
+dt$Longitude[dt$SITE_ID == 22009] <- -4.511990              # coords Maidenwood Google Maps
 
 
 # map --------------------------------------------------------------------------
@@ -420,8 +443,8 @@ ggplot(world_map) +
   theme_minimal()
 
 
-# Sampling Event Date  =========================================================
 
+# Sampling Event Date  =========================================================
 dt$Day <- as.integer(str_split_fixed(dt$EVENT_DATE, "/", 3)[,1])
 sort(unique(dt$Day))
 
@@ -433,24 +456,41 @@ sort(unique(dt$Year))
 
 identical(as.integer(dt$EVENT_DATE_YEAR), dt$Year)                    # TRUE
 
-c11 <- dt %>% group_by(SURVEY_ID) %>% summarise(nDay=n_distinct(Day)) # a survey always takes place over one unique day
+c10 <- dt %>% group_by(SURVEY_ID) %>% summarise(nDay=n_distinct(Day)) # a survey always takes place over one unique day
+
 
 
 # Sample Area & Fished Area ====================================================
-range(dt$SURVEY_AREA)           # in m2
+range(dt$SURVEY_AREA, na.rm=T)           # in m2
+range(dt$FISHED_AREA, na.rm=T)           # in m2
 TRUE %in% grepl("\\.", as.character(dt$SURVEY_AREA))
+
 
 # Small areas: -----------------------------------------------------------------
 sum(is.na(dt$SURVEY_AREA))      # 266
-sum(dt$SURVEY_AREA==0, na.rm=T) # 4478
-sum(dt$SURVEY_AREA==1, na.rm=T) # 1392
-sum(dt$SURVEY_AREA < 10 & dt$SURVEY_AREA > 1, na.rm=T) # 8
-sum(dt$SURVEY_AREA < 20 & dt$SURVEY_AREA > 9, na.rm=T) # 108
+sum(is.na(dt$FISHED_AREA))      # 287
+
+sum(dt$SURVEY_AREA==dt$FISHED_AREA, na.rm=T) # 275327
+sum(dt$SURVEY_AREA!=dt$FISHED_AREA, na.rm=T) # 6087
+unique(dt$SURVEY_STRATEGY[(dt$SURVEY_AREA==dt$FISHED_AREA)])
+unique(dt$SURVEY_STRATEGY[(dt$SURVEY_AREA!=dt$FISHED_AREA)])
+
+#View(dt[is.na(dt$FISHED_AREA),])
+dt$AREAm2 <- dt$FISHED_AREA
+dt$AREAm2 <- ifelse(is.na(dt$FISHED_AREA) & dt$SURVEY_AREA >0, dt$SURVEY_AREA, dt$AREAm2)
+sum(dt$SURVEY_AREA!=dt$AREAm2, na.rm=T)      # 6087
+sum(is.na(dt$AREAm2))                        # 266
 
 
-unique(dt$SURVEY_METHOD[is.na(dt$SURVEY_AREA)])         
-unique(dt$SURVEY_METHOD[dt$SURVEY_AREA==0])   
-unique(dt$SURVEY_METHOD[dt$SURVEY_AREA==1])   
+sum(dt$AREAm2==0, na.rm=T) # 4824
+sum(dt$AREAm2==1, na.rm=T) # 1408
+sum(dt$AREAm2 < 10 & dt$AREAm2 > 1, na.rm=T) # 8
+sum(dt$AREAm2 < 20 & dt$AREAm2 > 9, na.rm=T) # 122
+
+
+unique(dt$SURVEY_METHOD[is.na(dt$AREAm2)])         
+unique(dt$SURVEY_METHOD[dt$AREAm2==0])   
+unique(dt$SURVEY_METHOD[dt$AREAm2==1])   
 
 
 unique(dt$SURVEY_STRATEGY[is.na(dt$SURVEY_AREA)])  
@@ -458,91 +498,87 @@ unique(dt$SURVEY_STRATEGY[dt$SURVEY_AREA==0])
 unique(dt$SURVEY_STRATEGY[dt$SURVEY_AREA==1])     
 
 
-# View(dt[is.na(dt$SURVEY_AREA),])                                                            
-range(dt$FISHED_AREA[dt$SURVEY_AREA==0 & dt$SURVEY_METHOD=="PDC ELECTRIC FISHING"], na.rm=T)  # 0                    
-range(dt$FISHED_WIDTH[dt$SURVEY_AREA==0 & dt$SURVEY_METHOD=="PDC ELECTRIC FISHING"], na.rm=T) # 0 to approx. 60
-range(dt$FISHED_AREA[dt$SURVEY_AREA==0 & dt$SURVEY_METHOD=="ELECTRIC FISHING"], na.rm=T)      # 0                    
-range(dt$FISHED_WIDTH[dt$SURVEY_AREA==0 & dt$SURVEY_METHOD=="ELECTRIC FISHING"], na.rm=T)     # 0 to 24
-#View(dt[dt$FISHED_AREA==1 & dt$SURVEY_METHOD %in% c("ELECTRIC FISHING", "PDC ELECTRIC FISHING"),])
-sum(dt$SURVEY_AREA==0 & dt$SURVEY_METHOD %in% c("PDC ELECTRIC FISHING", "ELECTRIC FISHING"), na.rm=T) # 3683
-sum(dt$SURVEY_AREA==1 & dt$SURVEY_METHOD %in% c("PDC ELECTRIC FISHING", "ELECTRIC FISHING"), na.rm=T) # 174
-
-range(dt$SURVEY_AREA[dt$SURVEY_ID %in% unique(dt$SURVEY_ID[dt$SURVEY_AREA==0 & dt$SURVEY_METHOD=="PDC ELECTRIC FISHING"])])
-range(dt$SURVEY_AREA[dt$SURVEY_ID %in% unique(dt$SURVEY_ID[dt$SURVEY_AREA==0 & dt$SURVEY_METHOD=="ELECTRIC FISHING"])])
-range(dt$SURVEY_AREA[dt$SURVEY_ID %in% unique(dt$SURVEY_ID[dt$SURVEY_AREA==1 & dt$SURVEY_METHOD=="PDC ELECTRIC FISHING"])])
-range(dt$SURVEY_AREA[dt$SURVEY_ID %in% unique(dt$SURVEY_ID[dt$SURVEY_AREA==1 & dt$SURVEY_METHOD=="ELECTRIC FISHING"])])      
- 
-
-dt <- dt[!is.na(dt$SURVEY_AREA),]  
-dt <- dt[!(dt$SURVEY_AREA==0 & dt$SURVEY_METHOD %in% c("PDC ELECTRIC FISHING", "ELECTRIC FISHING")),]
-#dt <- dt[!(dt$SURVEY_AREA==1 & dt$SURVEY_METHOD %in% c("PDC ELECTRIC FISHING", "ELECTRIC FISHING")),] 
+dt <- dt[!is.na(dt$AREAm2),]  
+dt <- dt[!(dt$AREAm2==0 & dt$SURVEY_METHOD2 == "ELECTRICFISHING"),]
+dt <- dt[!(dt$AREAm2==1 & dt$SURVEY_METHOD2 == "ELECTRICFISHING"),]
 
 
-range(dt$SURVEY_AREA[dt$SURVEY_METHOD=="FIXED TRAP FISHING"]) # 0-1, counts idem density, keep
-range(dt$SURVEY_AREA[dt$SURVEY_METHOD=="TRAPPING"])           # 1 1, counts idem density, keep
-range(dt$SURVEY_AREA[dt$SURVEY_METHOD=="SEINE NETTING"])      # 0 - >10000
-sum(dt$SURVEY_AREA==0 & dt$SURVEY_METHOD=="SEINE NETTING")    # 631, rm
-sum(dt$SURVEY_AREA==1 & dt$SURVEY_METHOD=="SEINE NETTING")    # 9, rm
-range(dt$FISHED_AREA[dt$SURVEY_AREA==0 & dt$SURVEY_METHOD=="SEINE NETTING"], na.rm=T)  # 0                  
-range(dt$FISHED_AREA[dt$SURVEY_AREA==1 & dt$SURVEY_METHOD=="SEINE NETTING"], na.rm=T)  # 1                  
-dt <- dt[!(dt$SURVEY_AREA==0 & dt$SURVEY_METHOD == "SEINE NETTING"),]
-#dt <- dt[!(dt$SURVEY_AREA==1 & dt$SURVEY_METHOD == "SEINE NETTING"),]
+range(dt$AREAm2[dt$SURVEY_METHOD2=="FIXED TRAP FISHING"]) # 0-1, counts idem density, keep
+range(dt$AREAm2[dt$SURVEY_METHOD2=="TRAPPING"])           # 1 1, counts idem density, keep
+range(dt$AREAm2[dt$SURVEY_METHOD2=="SEINE NETTING"])      # 0 - >10000
+sum(dt$AREAm2==0 & dt$SURVEY_METHOD2=="SEINE NETTING")    # 631, rm
+sum(dt$AREAm2==1 & dt$SURVEY_METHOD2=="SEINE NETTING")    # 9, rm
+dt <- dt[!(dt$AREAm2==0 & dt$SURVEY_METHOD2 == "SEINE NETTING"),]
+dt <- dt[!(dt$AREAm2==1 & dt$SURVEY_METHOD2 == "SEINE NETTING"),]
 
 # NOTE: when methods are "PDC ELECTRIC FISHING", "ELECTRIC FISHING", "SEINE NETTING"
 # rm surveys with no info on area (NA or 0) because density cannot be computed
 # rm surveys with area equal to 1 (this is likely a typo)
 # keep records for trapping and fixed trapping
 
-unique(dt$SURVEY_METHOD[dt$SURVEY_AREA==0])   
-dt$SURVEY_AREA[dt$SURVEY_AREA==0] <- 1
-unique(dt$SURVEY_METHOD[dt$SURVEY_AREA==1]) 
+unique(dt$SURVEY_METHOD2[dt$AREAm2==0])   
+dt$AREAm2[dt$AREAm2==0] <- 1
+unique(dt$SURVEY_METHOD[dt$AREAm2==1]) 
 
 
 # Large areas: -----------------------------------------------------------------
-range(dt$SURVEY_AREA)
-class(dt$SURVEY_AREA)
-c12 <- dt %>% group_by(SITE_ID, SURVEY_METHOD, SURVEY_STRATEGY) %>% 
-  summarise(nMin=min(SURVEY_AREA), nMax=max(SURVEY_AREA),
-            nDiff=max(SURVEY_AREA) - min(SURVEY_AREA)) 
-c13 <- dt %>% group_by(SURVEY_ID) %>% 
-  distinct(SURVEY_AREA)
+range(dt$AREAm2)
+class(dt$AREAm2)
+c11 <- dt %>% group_by(SITE_ID, SURVEY_METHOD2, SURVEY_STRATEGY) %>% 
+  summarise(nMin=min(AREAm2), nMax=max(AREAm2),
+            nDiff=max(AREAm2) - min(AREAm2)) 
+c12 <- dt %>% group_by(SURVEY_ID) %>% 
+  distinct(AREAm2)
 #View(dt[dt$SURVEY_AREA==9997992,])  # OK
 #View(dt[dt$SURVEY_AREA==384300,])   # OK
 #View(dt[dt$SURVEY_AREA >384300,])   # mostly 999 etc in length, width, etc (rm)
+unique(dt$SURVEY_STRATEGY[dt$AREAm2 > 384300]) # "CATCH PUE/T SAMPLE"
+dt <- dt[!dt$AREAm2 > 384300, ]      # NOTE: rm, since these values are unlikely to be true areas
 
-dt <- dt[!dt$SURVEY_AREA > 384300, ] # NOTE: rm, since these values are unlikely to be true areas
 
 
 # Remove sites after processing methods ========================================
-c14 <- dt %>% group_by(SITE_ID, SURVEY_METHOD, SURVEY_STRATEGY, NO_OF_RUNS) %>% summarise(nYear=n_distinct(EVENT_DATE_YEAR))
-c14$ConcatRm <- paste0(c14$SITE_ID, "_", c14$SURVEY_METHOD, "_", c14$SURVEY_STRATEGY, "_", c14$NO_OF_RUNS)
+c13 <- dt %>% group_by(SITE_ID, SURVEY_METHOD2, SURVEY_STRATEGY) %>% summarise(nYear=n_distinct(EVENT_DATE_YEAR))
+c13$ConcatRm <- paste0(c13$SITE_ID, "_", c13$SURVEY_METHOD2, "_", c13$SURVEY_STRATEGY)
 
-sum(c14$nYear==1)                          # 1807
-length(unique(c14$ConcatRm[c14$nYear==1])) # 1807
-toRm2 <- unique(c14$ConcatRm[c14$nYear==1])
+sum(c13$nYear==1)                          # 75
+length(unique(c13$ConcatRm[c13$nYear==1])) # 75
+toRm2 <- unique(c13$ConcatRm[c13$nYear==1])
 
 dt <- dt[!dt$ConcatRm %in% toRm2, ]        # rm surveys with a specific methodology used only 1 year, keep 254379
 
+c14 <- dt %>% group_by(SITE_ID, SURVEY_METHOD2, SURVEY_STRATEGY) %>% summarise(nR=n_distinct(minS)) # always 1
 
-# Aggregate & compute densities ================================================
-unique(dt$SURVEY_METHOD)
-c15 <- dt %>% group_by(SITE_ID, SURVEY_ID) %>% summarise(nArea=n_distinct(SURVEY_AREA)) # always 1
-c16 <- dt %>% group_by(SITE_ID, SURVEY_METHOD, SURVEY_STRATEGY) %>% 
-  summarise(nMin=min(SURVEY_AREA), nMax=max(SURVEY_AREA),
-            nDiff=max(SURVEY_AREA) - min(SURVEY_AREA))                                  # 278100m2, 0.28km2
 
-c17 <- dt %>% group_by(SITE_ID, SURVEY_METHOD, SURVEY_STRATEGY, 
+
+# Additional Step before upload in BioTIME =====================================
+# All data records with survey strategy CPUE cannot be included in BioTIME
+# since time of sampling is necessary to standardise these records, but 
+# this info is not available in the DEFRA Database (check availability in the
+# future if the dataset is updated with new records)
+unique(dt$SURVEY_STRATEGY)
+dt <- dt[!dt$SURVEY_STRATEGY=="CATCH PUE/T SAMPLE",] # 260918
+
+
+# Final checks =================================================================
+unique(dt$SURVEY_METHOD2)
+c15 <- dt %>% group_by(SITE_ID, SURVEY_ID) %>% summarise(nArea=n_distinct(AREAm2)) # always 1
+c16 <- dt %>% group_by(SITE_ID, SURVEY_METHOD2, SURVEY_STRATEGY) %>% 
+  summarise(nMin=min(AREAm2), nMax=max(AREAm2),
+            nDiff=max(AREAm2) - min(AREAm2))                                       # 278100m2, 0.28km2
+
+c17 <- dt %>% group_by(SITE_ID, SURVEY_METHOD2, SURVEY_STRATEGY, 
                        Day, Month, Year) %>% summarise(n=n_distinct(SURVEY_ID))
-range(c17$n)                                                                            # always 1 (so SampleDesc can be Site_Day_Month_Year)
+range(c17$n)                                                                       # always 1 (so SampleDesc can be Site_Day_Month_Year)
+
 
 
 # Rawdata ======================================================================
 rawData <- dt %>% group_by(Family, Genus, Species, Latitude, Longitude, Day, Month, Year,
-                           SITE_ID, SURVEY_ID, SURVEY_METHOD, SURVEY_STRATEGY, NO_OF_RUNS, SURVEY_AREA) %>%
-  summarise(Abundance=sum(TOTAL_ABUNDANCE)) # some observations pooled (252811)
-range(rawData$SURVEY_AREA)
-rawData$Abundance <- (rawData$Abundance/rawData$SURVEY_AREA)*100
-rawData$Abundance <- rawData$Abundance/rawData$NO_OF_RUNS
+                           SITE_ID, SURVEY_ID, SURVEY_METHOD2, SURVEY_STRATEGY, AREAm2) %>%
+  summarise(Abundance=sum(TOTAL_ABUNDANCE)) # some observations pooled (259333)
+range(rawData$AREAm2)
+rawData$Abundance <- (rawData$Abundance/rawData$AREAm2)*100
 range(rawData$Abundance)
 
 names(rawData)
@@ -562,24 +598,25 @@ rawData <-as.data.frame(rawData)
 str(rawData)
 
 
+
 # Split ========================================================================
-unique(paste0(rawData$SURVEY_METHOD, "_", rawData$SURVEY_STRATEGY))
-unique(rawData$SURVEY_METHOD)
+unique(paste0(rawData$SURVEY_METHOD2, "_", rawData$SURVEY_STRATEGY))
+unique(rawData$SURVEY_METHOD2)
 unique(rawData$SURVEY_STRATEGY)
 rawData$SURVEY_STRATEGY <- str_replace_all(rawData$SURVEY_STRATEGY, "[[:punct:]]", " ")
 rawData$SURVEY_STRATEGY <- str_replace_all(rawData$SURVEY_STRATEGY, "  ", " ")
-rawData$SURVEY_METHOD <- str_replace_all(rawData$SURVEY_METHOD, " ", "_")
+rawData$SURVEY_METHOD2 <- str_replace_all(rawData$SURVEY_METHOD2, " ", "_")
 rawData$SURVEY_STRATEGY <- str_replace_all(rawData$SURVEY_STRATEGY, " ", "_")
 
-rawData$ConcatMethods <- paste0(rawData$SURVEY_METHOD, "_", rawData$SURVEY_STRATEGY)
+rawData$ConcatMethods <- paste0(rawData$SURVEY_METHOD2, "_", rawData$SURVEY_STRATEGY)
 lr <- split(rawData, f=rawData$ConcatMethods)
-sum_lr <- lapply(lr, function(x) {x %>% group_by(SITE_ID) %>% summarise(n=n_distinct(NO_OF_RUNS))})
 
-# Grain size:
-meanArealr <- lapply(lr, function(x) {mean(x$SURVEY_AREA)})
 
-lr <- lapply(lr, function(x){within(x, rm(SITE_ID, SURVEY_ID, SURVEY_METHOD,
-                                          SURVEY_STRATEGY, NO_OF_RUNS, SURVEY_AREA, ConcatMethods))})
+# Grain size:-------------------------------------------------------------------
+meanArealr <- lapply(lr, function(x) {mean(x$AREAm2)})
+
+lr <- lapply(lr, function(x){within(x, rm(SITE_ID, SURVEY_ID, SURVEY_METHOD2,
+                                          SURVEY_STRATEGY, AREAm2, ConcatMethods))})
 
 
 # Save =========================================================================
@@ -615,4 +652,5 @@ arealr <- lapply(coordslr, function(x){st_transform(x, st_crs("+proj=merc +lon_0
 
 # End of script ################################################################
 ################################################################################
+
 
